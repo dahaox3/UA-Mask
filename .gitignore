@@ -1,0 +1,5 @@
+/dist/
+*.test
+*.test.exe
+__pycache__/
+*.pyc

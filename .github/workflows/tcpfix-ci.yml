@@ -1,0 +1,44 @@
+name: TCP lifecycle and Cortex-A53 package
+
+on:
+  push:
+    branches: ["fix/v0.4.3-tcp-lifecycle"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-package:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version: '1.27.3'
+          cache: true
+      - name: Install A53 emulator and Lua syntax checker
+        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends qemu-user lua5.1
+      - name: Linux race and lifecycle stress tests
+        run: |
+          test -z "$(gofmt -l src)"
+          go vet ./src
+          go test -race -count=10 -timeout=180s ./src
+          sh -n files/UAmask.init
+          luac5.1 -p files/luci/cbi.lua files/luci/controller.lua
+      - name: Build and verify Cortex-A53 IPK
+        run: python3 scripts/build_ipk.py
+      - name: Run ARM64 binary and tests on Cortex-A53 emulation
+        run: |
+          qemu-aarch64 -cpu cortex-a53 dist/UAmask.aarch64_cortex-a53 -v
+          GOOS=linux GOARCH=arm64 GOARM64=v8.0 CGO_ENABLED=0 go test -c -o dist/UAmask.arm64.test ./src
+          qemu-aarch64 -cpu cortex-a53 dist/UAmask.arm64.test -test.v -test.timeout=90s
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: UAmask-aarch64-cortex-a53
+          path: |
+            dist/*.ipk
+            dist/SHA256SUMS
+            dist/BUILDINFO.json
+          if-no-files-found: error

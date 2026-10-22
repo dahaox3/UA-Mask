@@ -2,12 +2,14 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"io"
 	"net"
 	"net/http"
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 
 	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/sirupsen/logrus"
@@ -86,10 +88,13 @@ func (h *HTTPHandler) buildNewUA(originUA string, replacementUA string, uaRegexp
 }
 
 // ModifyAndForward 是核心处理函数，负责修改 User-Agent 并转发数据
-func (h *HTTPHandler) ModifyAndForward(dst net.Conn, src net.Conn, destAddrPort string, destIP string, destPort int) {
+func (h *HTTPHandler) ModifyAndForward(dst net.Conn, src net.Conn, destAddrPort string, destIP string, destPort int) error {
 	srcReader := h.bufioReaderPool.Get().(*bufio.Reader)
 	srcReader.Reset(src)
-	defer h.bufioReaderPool.Put(srcReader)
+	defer func() {
+		srcReader.Reset(nil)
+		h.bufioReaderPool.Put(srcReader)
+	}()
 
 	dstWriter := h.bufioWriterPool.Get().(*bufio.Writer)
 	dstWriter.Reset(dst)
@@ -97,15 +102,28 @@ func (h *HTTPHandler) ModifyAndForward(dst net.Conn, src net.Conn, destAddrPort 
 		if err := dstWriter.Flush(); err != nil {
 			logrus.Debugf("[Handler] [%s] Final flush error on exit: %v", destAddrPort, err)
 		}
+		dstWriter.Reset(nil)
 		h.bufioWriterPool.Put(dstWriter)
 	}()
 
 	logrus.Debugf("[Handler] [%s] connection established", destAddrPort)
 
+	firstPacket := true
 	for {
+		if firstPacket {
+			_ = src.SetReadDeadline(time.Now().Add(h.config.FirstPacketTimeout))
+		}
 		is_http, err := h.isHTTP(srcReader)
+		if firstPacket {
+			_ = src.SetReadDeadline(time.Time{})
+			firstPacket = false
+		}
 		//检测失败
 		if err != nil {
+			var timeout net.Error
+			if errors.As(err, &timeout) && timeout.Timeout() {
+				return err
+			}
 			if err == io.EOF || strings.Contains(err.Error(), "use of closed network connection") {
 				logrus.Debugf("[Handler] [%s] Connection closed (EOF or closed in loop)", destAddrPort)
 			} else {
@@ -117,10 +135,11 @@ func (h *HTTPHandler) ModifyAndForward(dst net.Conn, src net.Conn, destAddrPort 
 				logrus.Debugf("[Handler] [%s] Flush error before fallback (isHTTP err): %v", destAddrPort, err_flush)
 			}
 			// 回退到io.copy
-			if _, err := io.Copy(dst, srcReader); err != nil && err != io.EOF {
-				logrus.Debugf("[Handler] [%s] Fallback copy error: %v", destAddrPort, err)
+			if _, copyErr := io.Copy(dst, srcReader); copyErr != nil && copyErr != io.EOF {
+				logrus.Debugf("[Handler] [%s] Fallback copy error: %v", destAddrPort, copyErr)
+				return copyErr
 			}
-			return
+			return err
 		}
 
 		if !is_http {
@@ -132,14 +151,14 @@ func (h *HTTPHandler) ModifyAndForward(dst net.Conn, src net.Conn, destAddrPort 
 			if h.config.EnableFirewallUABypass {
 				h.fwManager.ReportNonHttpEvent(destIP, destPort)
 			}
-			if _, err := io.Copy(dst, srcReader); err != nil && err != io.EOF {
-				logrus.Debugf("[Handler] [%s] Fallback copy error: %v", destAddrPort, err)
-			}
-			return
+			_, err := io.Copy(dst, srcReader)
+			return err
 		}
 
 		// 3. 使用 Go 标准库解析 HTTP 头部
+		_ = src.SetReadDeadline(time.Now().Add(h.config.FirstPacketTimeout))
 		request, err := http.ReadRequest(srcReader)
+		_ = src.SetReadDeadline(time.Time{})
 		if err != nil {
 			if err == io.EOF || strings.Contains(err.Error(), "use of closed network connection") {
 				logrus.Debugf("[Handler] [%s] Connection closed (EOF or closed)", destAddrPort)
@@ -148,7 +167,7 @@ func (h *HTTPHandler) ModifyAndForward(dst net.Conn, src net.Conn, destAddrPort 
 			} else {
 				logrus.Debugf("[Handler] [%s] HTTP read request error: %v", destAddrPort, err)
 			}
-			return // 结束此连接的处理
+			return err
 		}
 		if h.config.EnableFirewallUABypass {
 			h.fwManager.ReportHttpEvent(destIP, destPort)
@@ -194,7 +213,7 @@ func (h *HTTPHandler) ModifyAndForward(dst net.Conn, src net.Conn, destAddrPort 
 					h.fwManager.Add(destIP, destPort, h.config.FirewallIPSetName, h.config.FirewallType, 86400)
 					if h.config.FirewallDropOnMatch {
 						logrus.Debugf("[Handler] [%s] FirewallDropOnMatch enabled, dropping connection for protocol switch bypass.", destAddrPort)
-						return
+						return nil
 					}
 					shouldReplace = false
 					matchReason = "Hit Firewall UA Whitelist"
@@ -278,13 +297,13 @@ func (h *HTTPHandler) ModifyAndForward(dst net.Conn, src net.Conn, destAddrPort 
 		if err := request.Write(dstWriter); err != nil {
 			logrus.Debugf("[Handler] [%s] HTTP write request error: %v", destAddrPort, err)
 			request.Body.Close()
-			return
+			return err
 		}
 		// 7. 刷新缓冲区，确保请求头立即发送
 		if err := dstWriter.Flush(); err != nil {
 			logrus.Debugf("[Handler] [%s] Flush error after writing request: %v", destAddrPort, err)
 			request.Body.Close()
-			return
+			return err
 		}
 
 		// 8. 关闭 Body，准备读取下一个 Keep-Alive 请求

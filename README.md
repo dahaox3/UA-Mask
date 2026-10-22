@@ -1,5 +1,10 @@
 # UA-Mask
 
+> This fork's `v0.4.3-tcpfix.1` release repairs TCP lifecycle and worker-queue
+> accumulation on Cortex-A53 routers, while preserving the existing UA policy.
+> [Release downloads](https://github.com/dahaox3/UA-Mask/releases) ·
+> [Repair, settings, installation and validation](docs/TCP_LIFECYCLE_FIX.md)
+
 <!-- PROJECT SHIELDS -->
 [![GitHub Release][release-shield]][release-url]
 [![MIT License][license-shield]][license-url]

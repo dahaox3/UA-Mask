@@ -27,6 +27,10 @@ type Config struct {
 	CacheSize                  int
 	BufferSize                 int
 	PoolSize                   int
+	FirstPacketTimeout         time.Duration
+	IdleTimeout                time.Duration
+	HalfCloseTimeout           time.Duration
+	QueueTimeout               time.Duration
 	FirewallUAWhitelist        []string      // 防火墙 UA 白名单
 	EnableFirewallUABypass     bool          // 启用防火墙非 HTTP 绕过
 	FirewallIPSetName          string        // 防火墙 set 名称
@@ -54,6 +58,10 @@ func NewConfig() (*Config, error) {
 		cacheSize                  int
 		bufferSize                 int
 		poolSize                   int
+		firstPacketTimeout         time.Duration
+		idleTimeout                time.Duration
+		halfCloseTimeout           time.Duration
+		queueTimeout               time.Duration
 		firewallUAWhitelistArg     string
 		enableFirewallUABypass     bool
 		firewallIPSetName          string
@@ -84,6 +92,10 @@ func NewConfig() (*Config, error) {
 	flag.IntVar(&cacheSize, "cache-size", 1000, "LRU cache size")
 	flag.IntVar(&bufferSize, "buffer-size", 8192, "I/O buffer size (bytes)")
 	flag.IntVar(&poolSize, "p", 0, "Worker pool size (0 or less = one goroutine per connection)")
+	flag.DurationVar(&firstPacketTimeout, "first-packet-timeout", 10*time.Second, "Maximum wait for protocol detection or HTTP request headers")
+	flag.DurationVar(&idleTimeout, "idle-timeout", 10*time.Minute, "Close connections with no data in either direction for this duration")
+	flag.DurationVar(&halfCloseTimeout, "half-close-timeout", 30*time.Second, "Maximum idle time while draining a half-closed connection")
+	flag.DurationVar(&queueTimeout, "queue-timeout", 5*time.Second, "Maximum time an accepted connection may wait for a worker")
 
 	// 防火墙绕过
 	flag.StringVar(&firewallUAWhitelistArg, "fw-ua-w", "", "Comma-separated User-Agent firewall whitelist keywords")
@@ -113,6 +125,10 @@ func NewConfig() (*Config, error) {
 		CacheSize:            cacheSize,
 		BufferSize:           bufferSize,
 		PoolSize:             poolSize,
+		FirstPacketTimeout:   firstPacketTimeout,
+		IdleTimeout:          idleTimeout,
+		HalfCloseTimeout:     halfCloseTimeout,
+		QueueTimeout:         queueTimeout,
 		Whitelist:            []string{},
 		KeywordsList:         []string{},
 
@@ -159,6 +175,9 @@ func NewConfig() (*Config, error) {
 	if cfg.CacheSize < 0 {
 		return nil, fmt.Errorf("invalid cache size: %d", cfg.CacheSize)
 	}
+	if cfg.FirstPacketTimeout <= 0 || cfg.IdleTimeout <= 0 || cfg.HalfCloseTimeout <= 0 || cfg.QueueTimeout <= 0 {
+		return nil, fmt.Errorf("connection and queue timeouts must be positive")
+	}
 
 	// 根据模式处理 keywords 或 regex
 	if cfg.EnableRegex {
@@ -192,6 +211,7 @@ func (c *Config) LogConfig(version string) {
 	logrus.Infof("Cache Size: %d", c.CacheSize)
 	logrus.Infof("Buffer Size: %d", c.BufferSize)
 	logrus.Infof("Worker Pool Size: %d", c.PoolSize)
+	logrus.Infof("Connection timeouts: first-packet=%s idle=%s half-close=%s queue=%s", c.FirstPacketTimeout, c.IdleTimeout, c.HalfCloseTimeout, c.QueueTimeout)
 
 	// 日志
 	logrus.Infof("Firewall Type: %s", c.FirewallType)

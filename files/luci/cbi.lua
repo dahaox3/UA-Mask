@@ -40,7 +40,7 @@ UAmask = Map("UAmask",
         display: none !important;
     }
     </style>
-        <a href="https://github.com/Zesuy/UA-Mask" target="_blank">版本：0.4.3</a>
+        <a href="https://github.com/dahaox3/UA-Mask/releases" target="_blank">版本：0.4.3+tcpfix1</a>
         <br>
         用于修改 User-Agent 的透明代理，使用 REDIRECT 技术实现。
         <br>
@@ -101,6 +101,19 @@ main:tab("network", "网络与防火墙")
 main:tab("advanced", "高级设置")
 main:tab("softlog", "应用日志")
 
+local timeout_options = {
+    { "first_packet_timeout", "首包及 HTTP 请求头超时（秒）", "10", "限制协议识别和 HTTP 请求头的等待时间；不限制请求正文传输时间。" },
+    { "idle_timeout", "连接空闲超时（秒）", "600", "仅当双向均无数据时回收连接；持续传输的连接不会因总时长而断开。" },
+    { "half_close_timeout", "半关闭连接空闲超时（秒）", "30", "一端结束发送后允许剩余数据继续传输；持续无数据才回收。" },
+    { "queue_timeout", "工作池排队超时（秒）", "5", "等待工作协程超过此时间的连接会被关闭；队列已满时快速拒绝新连接。" }
+}
+for _, spec in ipairs(timeout_options) do
+    local option = main:taboption("advanced", Value, spec[1], spec[2], spec[4])
+    option.datatype = "and(uinteger,min(1))"
+    option.default = spec[3]
+    option.rmempty = false
+end
+
 -- === Tab 1: 常规设置（UA 相关）===
 -- 运行模式
 operating_profile = main:taboption("general", ListValue, "operating_profile", "性能预设",
@@ -108,7 +121,7 @@ operating_profile = main:taboption("general", ListValue, "operating_profile", "�
     "<b>Low：</b> 适合 128MB 路由器，支持并发 200 连接<br>"..
     "<b>Medium：</b> 适合 256MB-512MB 路由器，支持并发 500 连接<br>"..
     "<b>High：</b> 适合软路由或 1GB 以上路由器，支持并发 1000 连接<br>".. 
-    "<b>注意：</b> 超过限制的连接将等待，这可以用来防止突发的连接压垮路由器<br>"..
+    "<b>注意：</b> 超过限制的连接会有限排队；队列满或等待超时会关闭新连接，避免连接积压耗尽内存。<br>"..
     "我们尽可能避免内存 GC，确保高性能与降低峰值，缺点是内存占用会稍高。"
 )
 operating_profile:value("Low", "低(Low)")

@@ -1,7 +1,10 @@
 package main
 
 import (
+	"context"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	lru "github.com/hashicorp/golang-lru/v2"
@@ -10,7 +13,7 @@ import (
 )
 
 var (
-	version = "0.4.3"
+	version = "0.4.3+tcpfix1"
 )
 
 func setupLogging(logLevel, logFile string) {
@@ -73,7 +76,9 @@ func main() {
 	server := NewServer(config, handler)
 
 	// Run() 会阻塞，直到发生致命错误
-	if err := server.Run(); err != nil {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if err := server.RunContext(ctx); err != nil {
 		logrus.Fatalf("Server failed to run: %v", err)
 	}
 }

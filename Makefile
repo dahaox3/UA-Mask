@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 # 1. 修改包名和版本
 PKG_NAME:=UAmask
-PKG_VERSION:=0.4.3
+PKG_VERSION:=0.4.3+tcpfix1
 PKG_RELEASE:=1
 
 PKG_MAINTAINER:=Zesuy <hongri580@gmail.com>
@@ -26,7 +26,7 @@ define Package/UAmask
 	CATEGORY:=Network
 	SUBMENU:=Web Servers/Proxies
 	TITLE:=A transparent proxy for changing User-Agent (nftables)
-	URL:=https://github.com/Zesuy/UA-Mask
+	URL:=https://github.com/dahaox3/UA-Mask
 	DEPENDS:=$(GO_ARCH_DEPENDS) +luci-compat 
 	CONFLICTS:=ua3f-tproxy ua3f-tproxy-ipt UAmask-ipt
 endef
