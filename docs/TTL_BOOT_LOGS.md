@@ -58,7 +58,9 @@ package removal. No diagnostics, node lists or credentials are uploaded.
 
 Fresh installs use a conservative custom profile: 128 workers, 4096-byte HTTP
 buffers, a 1000-entry UA cache, GOGC 100, WARN logging. TCP ports 22/443 bypass
-UA interception; TTL still applies. The default regex excludes Windows.
+UA interception; TTL still applies. Fresh installs use Android with partial
+regex replacement and exclude Windows. Private/campus destination ranges
+bypass UA interception so local authentication and LAN traffic remain direct.
 Normal upgrades preserve the existing `/etc/config/UAmask` conffile, so existing
 UA and performance settings are not replaced by fresh-install defaults.
 
