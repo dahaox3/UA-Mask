@@ -2,7 +2,7 @@ name: TCP lifecycle and Cortex-A53 package
 
 on:
   push:
-    branches: ["fix/v0.4.3-tcp-lifecycle"]
+    branches: ["fix/v0.4.3-tcp-lifecycle", "feat/a53-ttl-bootlogs"]
   workflow_dispatch:
 
 permissions:
@@ -26,6 +26,8 @@ jobs:
           go vet ./src
           go test -race -count=10 -timeout=180s ./src
           sh -n files/UAmask.init
+          for script in files/*.sh files/*.init; do sh -n "$script"; done
+          python3 -m unittest discover -s scripts/tests -v
           luac5.1 -p files/luci/cbi.lua files/luci/controller.lua
       - name: Build and verify Cortex-A53 IPK
         run: python3 scripts/build_ipk.py

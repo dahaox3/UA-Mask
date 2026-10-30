@@ -77,6 +77,9 @@ def main():
     mappings = [
         ("usr/bin/UAmask", binary, 0o755),
         ("etc/init.d/UAmask", (ROOT / "files/UAmask.init").read_bytes(), 0o755),
+        ("etc/init.d/uamask-log-history", (ROOT / "files/uamask-log-history.init").read_bytes(), 0o755),
+        ("usr/libexec/uamask-ttl", (ROOT / "files/uamask-ttl.sh").read_bytes(), 0o755),
+        ("usr/sbin/uamask-log-history", (ROOT / "files/uamask-log-history.sh").read_bytes(), 0o755),
         ("etc/config/UAmask", (ROOT / "files/UAmask.uci").read_bytes(), 0o600),
         ("usr/lib/lua/luci/model/cbi/UAmask.lua", (ROOT / "files/luci/cbi.lua").read_bytes(), 0o644),
         ("usr/lib/lua/luci/controller/UAmask.lua", (ROOT / "files/luci/controller.lua").read_bytes(), 0o644),
@@ -87,7 +90,7 @@ def main():
     control = f"""Package: UAmask
 Version: {version}-{release}
 Depends: libc, luci-compat
-Conflicts: ua3f-tproxy, ua3f-tproxy-ipt, UAmask-ipt
+Conflicts: ua3f, ua3f-tproxy, ua3f-tproxy-ipt, UAmask-ipt
 Source: https://github.com/dahaox3/UA-Mask
 SourceName: UAmask
 License: GPL-3.0-only

@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 # 1. 修改包名和版本
 PKG_NAME:=UAmask
-PKG_VERSION:=0.4.3+tcpfix1
+PKG_VERSION:=0.4.3+ttlboot1
 PKG_RELEASE:=1
 
 PKG_MAINTAINER:=Zesuy <hongri580@gmail.com>
@@ -28,11 +28,11 @@ define Package/UAmask
 	TITLE:=A transparent proxy for changing User-Agent (nftables)
 	URL:=https://github.com/dahaox3/UA-Mask
 	DEPENDS:=$(GO_ARCH_DEPENDS) +luci-compat 
-	CONFLICTS:=ua3f-tproxy ua3f-tproxy-ipt UAmask-ipt
+	CONFLICTS:=ua3f ua3f-tproxy ua3f-tproxy-ipt UAmask-ipt
 endef
 
 define Package/UAmask/description
-	A transparent proxy (TPROXY) for modifying HTTP User-Agent.
+	A REDIRECT proxy for modifying HTTP User-Agent, with WAN TTL rewriting.
 	This is the default version using nftables (firewall4).
 endef
 
@@ -56,6 +56,10 @@ define Package/UAmask/install
 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/UAmask $(1)/usr/bin/UAmask
 	$(INSTALL_DIR) $(1)/etc/init.d/
 	$(INSTALL_BIN) ./files/UAmask.init $(1)/etc/init.d/UAmask
+	$(INSTALL_BIN) ./files/uamask-log-history.init $(1)/etc/init.d/uamask-log-history
+	$(INSTALL_DIR) $(1)/usr/libexec/ $(1)/usr/sbin/
+	$(INSTALL_BIN) ./files/uamask-ttl.sh $(1)/usr/libexec/uamask-ttl
+	$(INSTALL_BIN) ./files/uamask-log-history.sh $(1)/usr/sbin/uamask-log-history
 	$(INSTALL_DIR) $(1)/etc/config/
 	$(INSTALL_CONF) ./files/UAmask.uci $(1)/etc/config/UAmask
 	$(INSTALL_DIR) $(1)/usr/lib/lua/luci/model/cbi/

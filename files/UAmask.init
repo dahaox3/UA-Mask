@@ -57,6 +57,7 @@ unset_firewall_nft() {
     nft delete chain inet fw4 UAmask_prerouting_before 2>/dev/null || true
     nft delete chain inet fw4 UAmask_output_after 2>/dev/null || true
     nft delete set inet fw4 ${IPSET_NAME} 2>/dev/null || true
+    nft delete chain inet fw4 UAmask_ttl_postrouting 2>/dev/null || true
     fw4 reload >/dev/null 2>&1
     logger -t "$NAME" "Firewall rules removed (nft)."
 }
@@ -168,6 +169,8 @@ EOF
     else
         logger -t "$NAME" "proxy_host is disabled. Skipping UAmask_output_after chain."
     fi
+    # Kernel TTL normalization also covers traffic bypassing the UA proxy.
+    [ ! -s /tmp/UAmask-ttl.nft ] || cat /tmp/UAmask-ttl.nft >>"${NFT_PATH}"
     logger -t "$NAME" "Generated nftables rules at ${NFT_PATH}"
     # 7. 注册防火墙规则
     uci set firewall.${FW_CONFIG_NAME}="include"
@@ -340,6 +343,9 @@ start_service() {
         return 1
     fi
 
+    /usr/libexec/uamask-ttl prepare || return 1
+    /etc/init.d/uamask-log-history start
+
     local proxy_host
     config_get_bool proxy_host "main" "proxy_host" "0"
 
@@ -352,6 +358,10 @@ start_service() {
     config_get ua "main" "ua" "FFF"
     config_get log_level "main" "log_level" "info"
     config_get log_file "main" "log_file" "/tmp/UAmask/UAmask.log"
+    local persistent_logs
+    config_get_bool persistent_logs main persistent_logs 1
+    # Persistent syslog collects stdout; avoid duplicate logs in RAM-backed /tmp.
+    [ "$persistent_logs" != 1 ] || log_file=""
     config_get whitelist "main" "whitelist" ""
 
     local firewall_ua_whitelist
@@ -429,7 +439,7 @@ start_service() {
     local operating_profile
     config_get operating_profile "main" "operating_profile" "high_throughput"
 
-    local cache_size buffer_size pool_size gogc_value
+    local cache_size buffer_size pool_size gogc_value=100
 
     case "$operating_profile" in
         Low)
@@ -528,6 +538,7 @@ start_service() {
 
 stop_service() {
     logger -t "$NAME" "Stopping $NAME..."
+    /usr/libexec/uamask-ttl restore || logger -t "$NAME" "Failed to restore saved flow-offload settings"
     # 停止服务时自动清理防火墙
     unset_firewall
     # procd 会自动使用 pidfile 停止 start-stop-daemon

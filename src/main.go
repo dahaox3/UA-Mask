@@ -13,7 +13,7 @@ import (
 )
 
 var (
-	version = "0.4.3+tcpfix1"
+	version = "0.4.3+ttlboot1"
 )
 
 func setupLogging(logLevel, logFile string) {

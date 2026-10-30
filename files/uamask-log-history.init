@@ -1,0 +1,28 @@
+#!/bin/sh /etc/rc.common
+USE_PROCD=1
+START=13
+STOP=88
+
+start_service() {
+    local enabled directory
+    config_load UAmask
+    config_get_bool enabled main persistent_logs 1
+    [ "$enabled" = 1 ] || return 0
+    directory=$(/usr/sbin/uamask-log-history prepare) || return 1
+    procd_open_instance syslog
+    procd_set_param command /sbin/logread -f -F "$directory/system.log" -S 512 -p /var/run/uamask-logread.pid
+    procd_set_param respawn 3600 5 0
+    procd_close_instance
+    procd_open_instance resources
+    procd_set_param command /usr/sbin/uamask-log-history run
+    procd_set_param respawn 3600 5 0
+    procd_close_instance
+}
+
+stop_service() {
+    /usr/sbin/uamask-log-history stop 2>/dev/null || true
+}
+
+service_triggers() {
+    procd_add_reload_trigger UAmask
+}

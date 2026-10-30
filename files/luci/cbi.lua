@@ -40,7 +40,7 @@ UAmask = Map("UAmask",
         display: none !important;
     }
     </style>
-        <a href="https://github.com/dahaox3/UA-Mask/releases" target="_blank">版本：0.4.3+tcpfix1</a>
+        <a href="https://github.com/dahaox3/UA-Mask/releases" target="_blank">版本：0.4.3+ttlboot1</a>
         <br>
         用于修改 User-Agent 的透明代理，使用 REDIRECT 技术实现。
         <br>
@@ -128,19 +128,19 @@ operating_profile:value("Low", "低(Low)")
 operating_profile:value("Medium", "中(Medium)")
 operating_profile:value("High", "高(High)")
 operating_profile:value("custom", "自定义")
-operating_profile.default = "Medium"
+operating_profile.default = "custom"
 
 buffer_size = main:taboption("general", Value, "buffer_size", "I/O 缓冲区大小（字节）")
 buffer_size:depends("operating_profile", "custom")
 buffer_size.datatype = "uinteger"
-buffer_size.default = "8192"
+buffer_size.default = "4096"
 buffer_size.description = "每个连接使用的缓冲区大小，单位为字节。较大的缓冲区有助于提升吞吐性能。"
 
 pool_size = main:taboption("general", Value, "pool_size", "工作协程池大小")
 pool_size:depends("operating_profile", "custom")
 pool_size.datatype = "uinteger"
-pool_size.default = "0"
-pool_size.description = "工作协程池的大小。设为 0 则每个连接创建协程，使用协程池会限制最大并发，但能减少 GC。<br>最大 RAM 估计：pool_size*(2*buffer_size) + cache_ram。<br>若 pool_size 设为 0，则最大 RAM 估计：连接数*(2*buffer_size) + cache_ram。"
+pool_size.default = "128"
+pool_size.description = "同时处理的连接数上限；设为 0 不限制连接并发，不推荐小内存设备使用。实际内存还包括 Go 运行时、复制缓冲和内核 TCP/连接跟踪开销，不能只按 HTTP 缓冲区估算。"
 
 cache_size = main:taboption("general", Value, "cache_size", "LRU 缓存大小")
 cache_size:depends("operating_profile", "custom")
@@ -234,6 +234,27 @@ bypass_ips = main:taboption("network", Value, "bypass_ips", "绕过目标 IP")
 bypass_ips.default = "172.16.0.0/12 192.168.0.0/16 127.0.0.0/8 169.254.0.0/16"
 bypass_ips.description = "豁免的目标 IP/CIDR 列表，用空格分隔。"
 
+ttl_enabled = main:taboption("network", Flag, "ttl_enabled", "出口 TTL 改写")
+ttl_enabled.default = 1
+ttl_enabled.rmempty = false
+ttl_enabled.description = "将 WAN 出口 IPv4 报文的 TTL 固定为指定值，包括绕过 UA 代理的 TCP、UDP 流量。启用时关闭软硬件流量卸载，停用时恢复原设置。"
+
+ttl_value = main:taboption("network", Value, "ttl_value", "出口 TTL 值")
+ttl_value:depends("ttl_enabled", "1")
+ttl_value.datatype = "range(1,255)"
+ttl_value.default = "64"
+ttl_value.rmempty = false
+
+ttl_ipv6 = main:taboption("network", Flag, "ttl_ipv6", "同时改写 IPv6 Hop Limit")
+ttl_ipv6:depends("ttl_enabled", "1")
+ttl_ipv6.default = 0
+ttl_ipv6.rmempty = false
+
+ttl_device = main:taboption("network", Value, "ttl_device", "WAN 出口设备")
+ttl_device:depends("ttl_enabled", "1")
+ttl_device.placeholder = "自动识别 wan 接口"
+ttl_device.description = "通常留空；仅在多 WAN 等情况下填写实际出口设备名。"
+
 -- === Tab 3: 高级设置（防火墙高级设置）===
 firewall_advanced_settings = main:taboption("advanced", Flag, "firewall_advanced_settings", "决策器设置")
 firewall_advanced_settings.description = "启用后，您可以自定义流量卸载中决策器的参数"
@@ -261,6 +282,11 @@ firewall_timeout.description = "添加到 ipset/nfset 中的规则的超时时�
 
 
 log_level = main:taboption("softlog", ListValue, "log_level", "日志等级")
+
+persistent_logs = main:taboption("softlog", Flag, "persistent_logs", "持久日志（总计不超过 5 MiB）")
+persistent_logs.default = 1
+persistent_logs.rmempty = false
+persistent_logs.description = "系统、内核和插件日志按每次启动分目录保存到 /overlay/UAmask-logs；每分钟保存资源状态。达到容量限制后删除最早启动的记录。同一次启动重启插件不会另分目录。"
 log_level.default = "info"
 log_level:value("debug", "调试（debug）")
 log_level:value("info", "信息（info）")
@@ -277,6 +303,9 @@ softlog = main:taboption("softlog", TextValue, "log_display","")
 softlog.readonly = true
 softlog.rows = 30
 softlog.cfgvalue = function(self, section)
+    if self.map:get("main", "persistent_logs") ~= "0" then
+        return luci.sys.exec("id=$(cat /overlay/UAmask-logs/current-boot 2>/dev/null); case \"$id\" in *[!0-9a-f-]*|'') exit;; esac; tail -n 200 /overlay/UAmask-logs/boots/\"$id\"/system.log 2>/dev/null")
+    end
     local log_file_path = self.map:get("main", "log_file")
     if not log_file_path or log_file_path == "" then
         return "（未配置应用日志文件路径）"
@@ -287,6 +316,9 @@ end
 local clear_btn = main:taboption("softlog", Button, "clear_log", "清空应用日志")
 clear_btn.inputstyle = "reset"
 clear_btn.write = function(self, section)
+    if self.map:get("main", "persistent_logs") ~= "0" then
+        return -- Keep persistent system history for fault diagnosis.
+    end
     local log_file_path = self.map:get(section, "log_file")
     if log_file_path and log_file_path ~= "" and nixio.fs.access(log_file_path) then
         luci.sys.exec("> \"" .. log_file_path .. "\"")
