@@ -1,9 +1,12 @@
 # UA-Mask
 
-> This fork's `v0.4.3-tcpfix.1` release repairs TCP lifecycle and worker-queue
-> accumulation on Cortex-A53 routers, while preserving the existing UA policy.
+> This fork's `v0.4.3-ttlboot.3` release reduces proxy memory allocations and
+> bounds HTTP headers and UA cache bytes on Cortex-A53 routers. It includes
+> the TCP lifecycle repair, WAN TTL rewriting and 5 MiB persistent boot logs.
 > [Release downloads](https://github.com/dahaox3/UA-Mask/releases) ·
-> [Repair, settings, installation and validation](docs/TCP_LIFECYCLE_FIX.md)
+> [Memory changes and limits](docs/MEMORY_OPTIMIZATION.md) ·
+> [TTL and boot logs](docs/TTL_BOOT_LOGS.md) ·
+> [TCP lifecycle repair](docs/TCP_LIFECYCLE_FIX.md)
 
 <!-- PROJECT SHIELDS -->
 [![GitHub Release][release-shield]][release-url]

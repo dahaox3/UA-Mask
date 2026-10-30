@@ -12,6 +12,17 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+var firewallSetNamePattern = regexp.MustCompile(`^[a-zA-Z0-9_]+$`)
+
+func configuredFirewallManager(cfg *Config) *FirewallSetManager {
+	if !cfg.EnableFirewallUABypass && len(cfg.FirewallUAWhitelist) == 0 {
+		return nil
+	}
+	// Preserve the enabled feature's existing admission semantics. Disabled
+	// installations avoid all three queues, timers and the worker entirely.
+	return NewFirewallSetManager(logrus.StandardLogger(), 10000, cfg)
+}
+
 type firewallAddItem struct {
 	ip      string
 	port    int
@@ -113,7 +124,7 @@ func (m *FirewallSetManager) Add(ip string, port int, setName, fwType string, ti
 		m.log.Warnf("[Manager] Invalid IP address: %s", ip)
 		return
 	}
-	if !regexp.MustCompile(`^[a-zA-Z0-9_]+$`).MatchString(setName) {
+	if !firewallSetNamePattern.MatchString(setName) {
 		m.log.Warnf("[Manager] Invalid set name: %s", setName)
 		return
 	}

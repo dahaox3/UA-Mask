@@ -10,8 +10,6 @@ import (
 	"regexp"
 	"testing"
 	"time"
-
-	lru "github.com/hashicorp/golang-lru/v2"
 )
 
 const testHangGuard = 5 * time.Second
@@ -47,10 +45,7 @@ func testServer(t *testing.T) *Server {
 		FirstPacketTimeout: time.Second, IdleTimeout: 2 * time.Second,
 		HalfCloseTimeout: 500 * time.Millisecond, QueueTimeout: time.Second,
 	}
-	cache, err := lru.New[string, string](32)
-	if err != nil {
-		t.Fatal(err)
-	}
+	cache := NewUACache(32, defaultCacheBytes)
 	return NewServer(config, NewHTTPHandler(config, NewStats(), cache, nil))
 }
 

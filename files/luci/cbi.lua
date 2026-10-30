@@ -134,7 +134,7 @@ buffer_size = main:taboption("general", Value, "buffer_size", "I/O 缓冲区大�
 buffer_size:depends("operating_profile", "custom")
 buffer_size.datatype = "uinteger"
 buffer_size.default = "4096"
-buffer_size.description = "每个连接使用的缓冲区大小，单位为字节。较大的缓冲区有助于提升吞吐性能。"
+buffer_size.description = "HTTP 读取/写入缓冲大小。非 HTTP 连接按需使用；回传方向使用可复用的 8 KiB 缓冲。"
 
 pool_size = main:taboption("general", Value, "pool_size", "工作协程池大小")
 pool_size:depends("operating_profile", "custom")
@@ -146,7 +146,17 @@ cache_size = main:taboption("general", Value, "cache_size", "LRU 缓存大小")
 cache_size:depends("operating_profile", "custom")
 cache_size.datatype = "uinteger"
 cache_size.default = "1000"
-cache_size.description = "LRU 缓存大小。缓存更大命中率更高，预估每 1000 条占用约 300KB 内存。"
+cache_size.description = "缓存项数上限，0 表示禁用。实际条目还受缓存字节预算限制；超过 2 KiB 的 UA 不缓存。"
+
+cache_max_bytes = main:taboption("general", Value, "cache_max_bytes", "UA 缓存预算（字节）")
+cache_max_bytes.datatype = "range(0,16777216)"
+cache_max_bytes.default = "524288"
+cache_max_bytes.description = "原始 UA、替换值和每项管理开销的合计预算，默认 512 KiB；0 表示禁用缓存。"
+
+max_header_bytes = main:taboption("general", Value, "max_header_bytes", "HTTP 请求头上限（字节）")
+max_header_bytes.datatype = "range(1024,1048576)"
+max_header_bytes.default = "65536"
+max_header_bytes.description = "请求行和头部总大小，默认 64 KiB；超过上限的连接会关闭。上传正文仍流式转发，不受此大小限制。"
 
 gogc_value=main:taboption("general", Value, "gogc_value", "Go 垃圾回收参数（GOGC）")
 gogc_value:depends("operating_profile", "custom")

@@ -5,13 +5,11 @@ import (
 	"errors"
 	"io"
 	"net"
-	"net/http"
 	"regexp"
 	"strings"
 	"sync"
 	"time"
 
-	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/sirupsen/logrus"
 )
 
@@ -22,7 +20,7 @@ var (
 type HTTPHandler struct {
 	config    *Config
 	stats     *Stats
-	cache     *lru.Cache[string, string]
+	cache     *UACache
 	fwManager *FirewallSetManager
 
 	// bufio.Reader 池
@@ -31,7 +29,7 @@ type HTTPHandler struct {
 	bufioWriterPool sync.Pool
 }
 
-func NewHTTPHandler(config *Config, stats *Stats, cache *lru.Cache[string, string], fwManager *FirewallSetManager) *HTTPHandler {
+func NewHTTPHandler(config *Config, stats *Stats, cache *UACache, fwManager *FirewallSetManager) *HTTPHandler {
 	h := &HTTPHandler{
 		config:    config,
 		stats:     stats,
@@ -90,20 +88,19 @@ func (h *HTTPHandler) buildNewUA(originUA string, replacementUA string, uaRegexp
 // ModifyAndForward 是核心处理函数，负责修改 User-Agent 并转发数据
 func (h *HTTPHandler) ModifyAndForward(dst net.Conn, src net.Conn, destAddrPort string, destIP string, destPort int) error {
 	srcReader := h.bufioReaderPool.Get().(*bufio.Reader)
-	srcReader.Reset(src)
+	budget := &headerBudgetReader{r: src}
+	srcReader.Reset(budget)
 	defer func() {
 		srcReader.Reset(nil)
 		h.bufioReaderPool.Put(srcReader)
 	}()
 
-	dstWriter := h.bufioWriterPool.Get().(*bufio.Writer)
-	dstWriter.Reset(dst)
+	var dstWriter *bufio.Writer
 	defer func() {
-		if err := dstWriter.Flush(); err != nil {
-			logrus.Debugf("[Handler] [%s] Final flush error on exit: %v", destAddrPort, err)
+		if dstWriter != nil {
+			dstWriter.Reset(nil)
+			h.bufioWriterPool.Put(dstWriter)
 		}
-		dstWriter.Reset(nil)
-		h.bufioWriterPool.Put(dstWriter)
 	}()
 
 	logrus.Debugf("[Handler] [%s] connection established", destAddrPort)
@@ -130,10 +127,6 @@ func (h *HTTPHandler) ModifyAndForward(dst net.Conn, src net.Conn, destAddrPort 
 				logrus.Debugf("[Handler] [%s] isHTTP check in loop error: %v", destAddrPort, err)
 			}
 
-			// 退出前尝试刷新剩余数据
-			if err_flush := dstWriter.Flush(); err_flush != nil {
-				logrus.Debugf("[Handler] [%s] Flush error before fallback (isHTTP err): %v", destAddrPort, err_flush)
-			}
 			// 回退到io.copy
 			if _, copyErr := io.Copy(dst, srcReader); copyErr != nil && copyErr != io.EOF {
 				logrus.Debugf("[Handler] [%s] Fallback copy error: %v", destAddrPort, copyErr)
@@ -144,10 +137,6 @@ func (h *HTTPHandler) ModifyAndForward(dst net.Conn, src net.Conn, destAddrPort 
 
 		if !is_http {
 			logrus.Debugf("[Handler] [%s] non-HTTP traffic detected", destAddrPort)
-			// 刷新已缓冲的数据
-			if err_flush := dstWriter.Flush(); err_flush != nil {
-				logrus.Debugf("[Handler] [%s] Flush error before fallback (isHTTP err): %v", destAddrPort, err_flush)
-			}
 			if h.config.EnableFirewallUABypass {
 				h.fwManager.ReportNonHttpEvent(destIP, destPort)
 			}
@@ -157,7 +146,11 @@ func (h *HTTPHandler) ModifyAndForward(dst net.Conn, src net.Conn, destAddrPort 
 
 		// 3. 使用 Go 标准库解析 HTTP 头部
 		_ = src.SetReadDeadline(time.Now().Add(h.config.FirstPacketTimeout))
-		request, err := http.ReadRequest(srcReader)
+		limit := h.config.MaxHeaderBytes
+		if limit == 0 {
+			limit = defaultMaxHeaderBytes
+		}
+		request, err := readBoundedRequest(srcReader, budget, limit)
 		_ = src.SetReadDeadline(time.Time{})
 		if err != nil {
 			if err == io.EOF || strings.Contains(err.Error(), "use of closed network connection") {
@@ -294,20 +287,31 @@ func (h *HTTPHandler) ModifyAndForward(dst net.Conn, src net.Conn, destAddrPort 
 		}
 
 		// 6. 写回目标
+		if dstWriter == nil {
+			dstWriter = h.bufioWriterPool.Get().(*bufio.Writer)
+			dstWriter.Reset(dst)
+		}
+		// Request.Write closes Body internally, even when its upstream write
+		// fails. A server-side Body.Close drains unread input and can block.
+		// Keep ownership here so failure closes the source before any drain.
+		originalBody := request.Body
+		request.Body = io.NopCloser(originalBody)
 		if err := request.Write(dstWriter); err != nil {
 			logrus.Debugf("[Handler] [%s] HTTP write request error: %v", destAddrPort, err)
-			request.Body.Close()
+			_ = src.Close() // prevent Body.Close from blocking while draining
+			originalBody.Close()
 			return err
 		}
 		// 7. 刷新缓冲区，确保请求头立即发送
 		if err := dstWriter.Flush(); err != nil {
 			logrus.Debugf("[Handler] [%s] Flush error after writing request: %v", destAddrPort, err)
-			request.Body.Close()
+			_ = src.Close()
+			originalBody.Close()
 			return err
 		}
 
 		// 8. 关闭 Body，准备读取下一个 Keep-Alive 请求
-		request.Body.Close()
+		originalBody.Close()
 		bodySize := request.ContentLength
 		logrus.Debugf("[Handler] [%s] Request processed, body size: %d. Waiting for next request...", destAddrPort, bodySize)
 	}

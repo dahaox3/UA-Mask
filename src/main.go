@@ -7,13 +7,12 @@ import (
 	"syscall"
 	"time"
 
-	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/sirupsen/logrus"
 	"gopkg.in/natefinch/lumberjack.v2"
 )
 
 var (
-	version = "0.4.3+ttlboot2"
+	version = "0.4.3+ttlboot3"
 )
 
 func setupLogging(logLevel, logFile string) {
@@ -61,16 +60,15 @@ func main() {
 	config.LogConfig(version)
 
 	stats := NewStats()
+	uaCache := NewUACache(config.CacheSize, config.CacheMaxBytes)
+	stats.cache = uaCache
 	stats.StartWriter("/tmp/UAmask.stats", 5*time.Second)
 
-	uaCache, err := lru.New[string, string](config.CacheSize)
-	if err != nil {
-		logrus.Fatalf("Failed to create LRU cache: %v", err)
+	fwManager := configuredFirewallManager(config)
+	if fwManager != nil {
+		fwManager.Start()
+		defer fwManager.Stop()
 	}
-
-	fwManager := NewFirewallSetManager(logrus.StandardLogger(), 10000, config)
-	fwManager.Start()
-	defer fwManager.Stop()
 	handler := NewHTTPHandler(config, stats, uaCache, fwManager)
 
 	server := NewServer(config, handler)

@@ -25,6 +25,8 @@ type Config struct {
 	UAPattern                  string
 	UARegexp                   *regexp.Regexp
 	CacheSize                  int
+	CacheMaxBytes              int
+	MaxHeaderBytes             int
 	BufferSize                 int
 	PoolSize                   int
 	FirstPacketTimeout         time.Duration
@@ -56,6 +58,8 @@ func NewConfig() (*Config, error) {
 		keywords                   string
 		enableRegex                bool
 		cacheSize                  int
+		cacheMaxBytes              int
+		maxHeaderBytes             int
 		bufferSize                 int
 		poolSize                   int
 		firstPacketTimeout         time.Duration
@@ -90,6 +94,8 @@ func NewConfig() (*Config, error) {
 
 	// 性能调优
 	flag.IntVar(&cacheSize, "cache-size", 1000, "LRU cache size")
+	flag.IntVar(&cacheMaxBytes, "cache-max-bytes", defaultCacheBytes, "UA cache charged byte budget (0 disables cache)")
+	flag.IntVar(&maxHeaderBytes, "max-header-bytes", defaultMaxHeaderBytes, "Maximum HTTP request-line and header bytes")
 	flag.IntVar(&bufferSize, "buffer-size", 8192, "I/O buffer size (bytes)")
 	flag.IntVar(&poolSize, "p", 0, "Worker pool size (0 or less = one goroutine per connection)")
 	flag.DurationVar(&firstPacketTimeout, "first-packet-timeout", 10*time.Second, "Maximum wait for protocol detection or HTTP request headers")
@@ -123,6 +129,8 @@ func NewConfig() (*Config, error) {
 		EnableRegex:          enableRegex,
 		EnablePartialReplace: enablePartialReplace,
 		CacheSize:            cacheSize,
+		CacheMaxBytes:        cacheMaxBytes,
+		MaxHeaderBytes:       maxHeaderBytes,
 		BufferSize:           bufferSize,
 		PoolSize:             poolSize,
 		FirstPacketTimeout:   firstPacketTimeout,
@@ -175,6 +183,12 @@ func NewConfig() (*Config, error) {
 	if cfg.CacheSize < 0 {
 		return nil, fmt.Errorf("invalid cache size: %d", cfg.CacheSize)
 	}
+	if cfg.CacheMaxBytes < 0 || cfg.CacheMaxBytes > 16*1024*1024 {
+		return nil, fmt.Errorf("invalid cache byte budget: %d", cfg.CacheMaxBytes)
+	}
+	if cfg.MaxHeaderBytes < 1024 || cfg.MaxHeaderBytes > 1024*1024 {
+		return nil, fmt.Errorf("invalid maximum header bytes: %d", cfg.MaxHeaderBytes)
+	}
 	if cfg.FirstPacketTimeout <= 0 || cfg.IdleTimeout <= 0 || cfg.HalfCloseTimeout <= 0 || cfg.QueueTimeout <= 0 {
 		return nil, fmt.Errorf("connection and queue timeouts must be positive")
 	}
@@ -209,6 +223,7 @@ func (c *Config) LogConfig(version string) {
 	logrus.Infof("Log level: %s", c.LogLevel)
 	logrus.Infof("User-Agent Whitelist: %v", c.Whitelist)
 	logrus.Infof("Cache Size: %d", c.CacheSize)
+	logrus.Infof("Cache byte budget: %d; maximum request headers: %d", c.CacheMaxBytes, c.MaxHeaderBytes)
 	logrus.Infof("Buffer Size: %d", c.BufferSize)
 	logrus.Infof("Worker Pool Size: %d", c.PoolSize)
 	logrus.Infof("Connection timeouts: first-packet=%s idle=%s half-close=%s queue=%s", c.FirstPacketTimeout, c.IdleTimeout, c.HalfCloseTimeout, c.QueueTimeout)

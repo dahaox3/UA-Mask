@@ -1,5 +1,8 @@
 # Cortex-A53 TTL and boot log release
 
+The current memory-optimized successor is [ttlboot3](MEMORY_OPTIMIZATION.md).
+It retains the TTL and log behavior described below.
+
 Package `0.4.3+ttlboot2-1` builds on `0.4.3+tcpfix1-1`. It retains the bounded
 TCP lifecycle, original-destination lookup repair and existing CLI/LuCI.
 Only the `aarch64_cortex-a53` IPK is published.

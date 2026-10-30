@@ -68,10 +68,13 @@ func (job *queuedConnection) discard() {
 
 func (s *Server) queueConnection(jobs chan *queuedConnection, conn *net.TCPConn) bool {
 	job := newQueuedConnection(conn, s.config.QueueTimeout)
+	s.handler.stats.QueuedConnections.Add(1)
 	select {
 	case jobs <- job:
 		return true
 	default:
+		s.handler.stats.QueuedConnections.Add(-1)
+		s.handler.stats.RejectedConnections.Add(1)
 		// Keep Accept moving so a full worker pool cannot fill the kernel backlog.
 		job.discard()
 		logrus.Debug("Worker queue full; rejected connection")
@@ -109,6 +112,7 @@ func (s *Server) serve(parent context.Context, listener *net.TCPListener) error 
 			go func() {
 				defer workers.Done()
 				for job := range jobs {
+					s.handler.stats.QueuedConnections.Add(-1)
 					if ctx.Err() != nil {
 						job.discard()
 						continue

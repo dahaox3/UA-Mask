@@ -5,9 +5,20 @@ import (
 	"errors"
 	"io"
 	"net"
+	"sync"
 	"sync/atomic"
 	"time"
 )
+
+const relayBufferSize = 8 * 1024
+
+var relayBufferPool = sync.Pool{New: func() any { return new([relayBufferSize]byte) }}
+
+func copyRelay(dst io.Writer, src io.Reader) (int64, error) {
+	buffer := relayBufferPool.Get().(*[relayBufferSize]byte)
+	defer relayBufferPool.Put(buffer)
+	return io.CopyBuffer(dst, src, buffer[:])
+}
 
 type activityConn struct {
 	net.Conn
@@ -69,7 +80,7 @@ func (s *Server) relay(ctx context.Context, client, upstream net.Conn, target *n
 		done <- err
 	}()
 	go func() {
-		_, err := io.Copy(clientIO, upstreamIO)
+		_, err := copyRelay(clientIO, upstreamIO)
 		closeWrite(client)
 		done <- err
 	}()

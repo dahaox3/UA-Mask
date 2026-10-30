@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"runtime/metrics"
 	"sync/atomic"
 	"time"
 
@@ -11,11 +12,14 @@ import (
 
 // Stats 封装了所有统计计数器
 type Stats struct {
-	ActiveConnections atomic.Uint64 // 当前活跃连接数
-	HttpRequests      atomic.Uint64 // 已处理 HTTP 请求总数
-	ModifiedRequests  atomic.Uint64 // 成功篡改总数
-	CacheHits         atomic.Uint64 // 缓存命中(修改)
-	CacheHitNoModify  atomic.Uint64 // 缓存命中(放行)
+	cache               *UACache
+	QueuedConnections   atomic.Int64
+	RejectedConnections atomic.Uint64
+	ActiveConnections   atomic.Uint64 // 当前活跃连接数
+	HttpRequests        atomic.Uint64 // 已处理 HTTP 请求总数
+	ModifiedRequests    atomic.Uint64 // 成功篡改总数
+	CacheHits           atomic.Uint64 // 缓存命中(修改)
+	CacheHitNoModify    atomic.Uint64 // 缓存命中(放行)
 }
 
 // NewStats 创建一个新的 Stats 实例
@@ -51,6 +55,13 @@ func (s *Stats) StartWriter(filePath string, interval time.Duration) {
 
 	go func() {
 		defer ticker.Stop()
+		samples := []metrics.Sample{
+			{Name: "/memory/classes/heap/objects:bytes"},
+			{Name: "/memory/classes/total:bytes"},
+			{Name: "/memory/classes/heap/released:bytes"},
+			{Name: "/gc/cycles/total:gc-cycles"},
+			{Name: "/sched/goroutines:goroutines"},
+		}
 		for range ticker.C {
 			activeConn := s.ActiveConnections.Load()
 			httpRequests := s.HttpRequests.Load()
@@ -113,6 +124,12 @@ func (s *Stats) StartWriter(filePath string, interval time.Duration) {
 				cacheHitPass,
 				totalCacheRatio,
 			)
+			metrics.Read(samples)
+			entries, cacheBytes := s.cache.Snapshot()
+			content += fmt.Sprintf("heap_alloc_bytes:%d\ngo_memory_bytes:%d\ngc_cycles:%d\ngoroutines:%d\ncache_entries:%d\ncache_charged_bytes:%d\nqueued_connections:%d\nrejected_connections:%d\n",
+				samples[0].Value.Uint64(), samples[1].Value.Uint64()-samples[2].Value.Uint64(),
+				samples[3].Value.Uint64(), samples[4].Value.Uint64(), entries, cacheBytes,
+				s.QueuedConnections.Load(), s.RejectedConnections.Load())
 
 			err := os.WriteFile(filePath, []byte(content), 0644)
 			if err != nil {

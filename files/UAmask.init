@@ -483,6 +483,11 @@ start_service() {
     procd_append_param command -cache-size "$cache_size"
     procd_append_param command -buffer-size "$buffer_size"
     procd_append_param command -p "$pool_size"
+    local cache_max_bytes max_header_bytes
+    config_get cache_max_bytes main cache_max_bytes 524288
+    config_get max_header_bytes main max_header_bytes 65536
+    procd_append_param command -cache-max-bytes "$cache_max_bytes"
+    procd_append_param command -max-header-bytes "$max_header_bytes"
     append_timeout_param -first-packet-timeout first_packet_timeout 10
     append_timeout_param -idle-timeout idle_timeout 600
     append_timeout_param -half-close-timeout half_close_timeout 30

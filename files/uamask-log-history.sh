@@ -91,6 +91,9 @@ sample() {
                 printf '%s_fds=%s ' "$name" "$(ls "/proc/$pid/fd" 2>/dev/null | wc -l)"
             done
         done
+        if [ -r /tmp/UAmask.stats ]; then
+            awk -F: '$1 ~ /^(heap_alloc_bytes|go_memory_bytes|gc_cycles|goroutines|cache_entries|cache_charged_bytes|queued_connections|rejected_connections)$/ && $2 ~ /^[0-9]+$/ {printf "UAmask_%s=%s ",$1,$2}' /tmp/UAmask.stats
+        fi
         printf 'dnsmasq_pids=%s\n' "$(pidof dnsmasq 2>/dev/null | tr ' ' ',' || true)"
     } >>"$file"
     prune
