@@ -40,7 +40,7 @@ UAmask = Map("UAmask",
         display: none !important;
     }
     </style>
-        <a href="https://github.com/dahaox3/UA-Mask/releases" target="_blank">版本：0.4.3+ttlboot1</a>
+        <a href="https://github.com/dahaox3/UA-Mask/releases" target="_blank">版本：0.4.3+ttlboot2</a>
         <br>
         用于修改 User-Agent 的透明代理，使用 REDIRECT 技术实现。
         <br>
@@ -237,7 +237,7 @@ bypass_ips.description = "豁免的目标 IP/CIDR 列表，用空格分隔。"
 ttl_enabled = main:taboption("network", Flag, "ttl_enabled", "出口 TTL 改写")
 ttl_enabled.default = 1
 ttl_enabled.rmempty = false
-ttl_enabled.description = "将 WAN 出口 IPv4 报文的 TTL 固定为指定值，包括绕过 UA 代理的 TCP、UDP 流量。启用时关闭软硬件流量卸载，停用时恢复原设置。"
+ttl_enabled.description = "将 WAN 出口 IPv4 报文的 TTL 固定为指定值，包括绕过 UA 代理的 TCP、UDP 流量。启用时关闭软硬件流量卸载及 GRO 列表聚合，停用时恢复原设置。"
 
 ttl_value = main:taboption("network", Value, "ttl_value", "出口 TTL 值")
 ttl_value:depends("ttl_enabled", "1")

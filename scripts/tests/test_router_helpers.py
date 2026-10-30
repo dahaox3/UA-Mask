@@ -84,9 +84,16 @@ class RouterHelpers(unittest.TestCase):
         bindir.mkdir()
         cfg = self.dir / "cfg"
         cfg.mkdir()
+        net = self.dir / "net"
+        net.mkdir()
+        (net / "eth0").mkdir()
+        (net / "eth1").mkdir()
+        self.boot(1)
         self.env.update(PATH=bindir.as_posix() + os.pathsep + self.env["PATH"],
                         UAMASK_TEST_UCI=cfg.as_posix(),
                         UAMASK_TTL_STATE=(self.dir / "offload.state").as_posix(),
+                        UAMASK_TTL_GRO_STATE=(self.dir / "gro").as_posix(),
+                        UAMASK_NET_DIR=net.as_posix(),
                         UAMASK_TTL_RULE=(self.dir / "ttl.nft").as_posix())
         (bindir / "uci").write_text('''#!/bin/sh
 set -eu
@@ -101,11 +108,20 @@ case "$op" in
 esac
 ''', newline="\n")
         (bindir / "fw4").write_text("#!/bin/sh\nexit 0\n", newline="\n")
+        (bindir / "ethtool").write_text('''#!/bin/sh
+set -eu
+case "$1" in
+ -k) printf 'rx-gro-list: %s\\n' "$(cat "$UAMASK_TEST_UCI/gro-$2")";;
+ -K) printf '%s\\n' "$4" >"$UAMASK_TEST_UCI/gro-$2";;
+ *) exit 2;;
+esac
+''', newline="\n")
         for p in bindir.iterdir():
             p.chmod(0o755)
         values = {"UAmask.main.ttl_enabled": "1", "UAmask.main.ttl_device": "eth1",
                   "UAmask.main.ttl_value": "64", "UAmask.main.ttl_ipv6": "0",
-                  "firewall.@defaults[0].flow_offloading": "1"}
+                  "firewall.@defaults[0].flow_offloading": "1",
+                  "gro-eth0": "on", "gro-eth1": "off"}
         for key, value in values.items():
             (cfg / key).write_text(value + "\n", newline="\n")
         self.run_helper("uamask-ttl.sh", "prepare")
@@ -114,10 +130,18 @@ esac
         self.run_helper("uamask-ttl.sh", "prepare")
         self.assertEqual(state.read_text().splitlines(), ["1", "unset"])
         self.assertEqual((cfg / "firewall.@defaults[0].flow_offloading").read_text().strip(), "0")
+        self.assertEqual((cfg / "gro-eth0").read_text().strip(), "off")
+        self.assertEqual((cfg / "gro-eth1").read_text().strip(), "off")
+        # Recreating an existing interface must not replace the original state.
+        (cfg / "gro-eth0").write_text("on\n", newline="\n")
+        self.run_helper("uamask-ttl.sh", "gro-device", "eth0")
+        self.assertEqual((cfg / "gro-eth0").read_text().strip(), "off")
         self.run_helper("uamask-ttl.sh", "restore")
         self.assertFalse(state.exists())
         self.assertEqual((cfg / "firewall.@defaults[0].flow_offloading").read_text().strip(), "1")
         self.assertFalse((cfg / "firewall.@defaults[0].flow_offloading_hw").exists())
+        self.assertEqual((cfg / "gro-eth0").read_text().strip(), "on")
+        self.assertEqual((cfg / "gro-eth1").read_text().strip(), "off")
 
 
 if __name__ == "__main__":

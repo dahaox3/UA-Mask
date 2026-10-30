@@ -3,6 +3,65 @@
 set -eu
 STATE=${UAMASK_TTL_STATE:-/etc/UAmask-ttl.offload}
 RULE=${UAMASK_TTL_RULE:-/tmp/UAmask-ttl.nft}
+GRO=${UAMASK_TTL_GRO_STATE:-/etc/UAmask-ttl.gro}
+NET=${UAMASK_NET_DIR:-/sys/class/net}
+BOOT=${UAMASK_BOOT_ID_FILE:-/proc/sys/kernel/random/boot_id}
+
+gro_boot() {
+    read -r boot <"$BOOT"
+    [ "${#boot}" = 36 ] || return 1
+    case "$boot" in *[!0-9a-f-]*) return 1;; esac
+}
+
+gro_device() {
+    gro_boot
+    device=$1
+    case "$device" in ''|*[!a-zA-Z0-9_.:-]*) return 1;; esac
+    original=$(ethtool -k "$device" 2>/dev/null | awk '$1=="rx-gro-list:" {print $2}' || true)
+    case "$original" in on|off) ;; *) return 0;; esac
+    umask 077
+    mkdir -p "$GRO/$boot"
+    # Atomic no-clobber creation preserves the first observed state even if a
+    # net hotplug handler races with startup. Record before changing the NIC.
+    (set -C; printf '%s\n' "$original" >"$GRO/$boot/$device") 2>/dev/null || true
+    ethtool -K "$device" rx-gro-list off
+}
+
+gro_prepare() {
+    command -v ethtool >/dev/null 2>&1 || return 1
+    gro_boot
+    for old in "$GRO"/*; do
+        [ -d "$old" ] || continue
+        other=${old##*/}
+        [ "$other" != "$boot" ] || continue
+        [ "${#other}" = 36 ] || continue
+        case "$other" in *[!0-9a-f-]*) continue;; esac
+        rm -rf "$old" # Per-boot NIC settings do not survive a reboot.
+    done
+    for path in "$NET"/*; do
+        [ ! -e "$path" ] || gro_device "${path##*/}" || return 1
+    done
+}
+
+gro_restore() {
+    [ -d "$GRO" ] || return 0
+    gro_boot
+    failed=0
+    for file in "$GRO/$boot"/*; do
+        [ -f "$file" ] || continue
+        device=${file##*/}
+        case "$device" in ''|*[!a-zA-Z0-9_.:-]*) failed=1; continue;; esac
+        read -r original <"$file"
+        case "$original" in on|off) ;; *) failed=1; continue;; esac
+        if [ ! -e "$NET/$device" ] || ethtool -K "$device" rx-gro-list "$original"; then
+            rm -f "$file"
+        else
+            failed=1
+        fi
+    done
+    [ "$failed" = 0 ] || return 1
+    rmdir "$GRO/$boot" "$GRO" 2>/dev/null || true
+}
 
 render() {
     device=$1 value=$2 ipv6=$3
@@ -22,6 +81,8 @@ EOF
 }
 
 restore() {
+    rm -f "$RULE"
+    gro_restore
     [ -f "$STATE" ] || return 0
     { read -r soft; read -r hard; } <"$STATE"
     case "$soft:$hard" in *[!01_:unset]*) return 1;; esac
@@ -63,6 +124,10 @@ prepare() {
     uci set 'firewall.@defaults[0].flow_offloading=0'
     uci set 'firewall.@defaults[0].flow_offloading_hw=0'
     uci commit firewall
+    if ! gro_prepare; then
+        restore
+        return 1
+    fi
     mv -f "$tmp" "$RULE"
     trap - EXIT HUP INT TERM
 }
@@ -70,6 +135,7 @@ prepare() {
 case "${1:-}" in
     render) [ "$#" = 4 ]; render "$2" "$3" "$4";;
     prepare) prepare;;
+    gro-device) [ "$#" = 2 ]; gro_device "$2";;
     restore) restore; rm -f "$RULE";;
     *) echo 'Usage: uamask-ttl {prepare|restore|render DEVICE TTL IPV6}' >&2; exit 2;;
 esac

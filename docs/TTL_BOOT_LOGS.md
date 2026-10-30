@@ -1,6 +1,6 @@
 # Cortex-A53 TTL and boot log release
 
-Package `0.4.3+ttlboot1-1` builds on `0.4.3+tcpfix1-1`. It retains the bounded
+Package `0.4.3+ttlboot2-1` builds on `0.4.3+tcpfix1-1`. It retains the bounded
 TCP lifecycle, original-destination lookup repair and existing CLI/LuCI.
 Only the `aarch64_cortex-a53` IPK is published.
 
@@ -21,6 +21,18 @@ Enabling TTL therefore saves the original software/hardware flow-offload UCI
 settings locally and disables them. Stopping UA-Mask or disabling TTL restores
 the saved settings. This can reduce maximum routing throughput. The saved
 settings contain no addresses or account details and are not part of the IPK.
+
+This release also saves/disables the per-device `rx-gro-list` feature using
+`ethtool`. On the tested kernel, UDP GRO frag-list packets left some datagrams
+with their original TTL after segmentation, despite postrouting (and an
+experimental netdev egress rule). Turning off `rx-gro-list` removed those
+observed misses; ordinary GRO/checksum/TSO features are left unchanged.
+NIC settings are restored when TTL is stopped. A net hotplug handler reapplies
+the compatibility setting to recreated interfaces. Per-boot NIC state is
+stored separately because NIC feature state itself resets across a reboot.
+
+The first TTL candidate (`ttlboot1`) did not include this compatibility fix;
+use `ttlboot2` for the actual deployment. The package depends on `ethtool`.
 
 ## Persistent history: total 5 MiB
 

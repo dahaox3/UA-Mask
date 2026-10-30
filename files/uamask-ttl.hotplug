@@ -1,0 +1,7 @@
+#!/bin/sh
+# New/recreated Wi-Fi and bridge interfaces must not re-enable GRO frag lists.
+case "${ACTION:-}" in add) ;; *) exit 0;; esac
+[ -s /tmp/UAmask-ttl.nft ] || exit 0
+[ -n "${INTERFACE:-}" ] || exit 0
+/usr/libexec/uamask-ttl gro-device "$INTERFACE" 2>/dev/null ||
+    logger -t UAmask "Could not apply TTL GRO compatibility to $INTERFACE"
